@@ -7,7 +7,7 @@ from logic import (
     target_band_for_new_invoice_from_gr,
 )
 
-st.title("Weight Discrepancy Checker")
+st.title("Weight Discrepancy Checker Champaign / Joliet")
 st.markdown(
     "Sube los PDFs del shipment (1 GR + 1 o más Invoices). "
     "El sistema hará el chequeo de discrepancias automáticamente."
@@ -111,3 +111,4 @@ if run_btn:
 
         st.subheader("📊 Validación – Invoice vs GR vs Nuevo")
         st.dataframe(validation_df, use_container_width=True)
+
