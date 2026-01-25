@@ -10,10 +10,6 @@ from logic import (
 st.set_page_config(page_title="Weight Discrepancy Checker", layout="wide")
 
 st.title("📦 Weight Discrepancy Checker")
-st.write(
-    "Pre-check calculator used to determine whether a weight discrepancy exists based on the ±10% tolerance" 
-    "rule, before uploading any documents"
-)
 
 # =========================
 # Pre-check Calculator
@@ -116,4 +112,5 @@ if run_btn:
             "Piece-level validation: original invoice weight vs matched GR weight vs proposed new weight."
         )
         st.dataframe(validation_df, use_container_width=True)
+
 
