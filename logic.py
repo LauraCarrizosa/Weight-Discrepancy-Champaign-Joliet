@@ -1,7 +1,6 @@
 import pandas as pd
 import streamlit as st
 
-# Usa TU lógica "special" desde logic.py
 from logic import (
     invoice_allowed_band,
     target_band_for_new_invoice_from_gr,
@@ -12,18 +11,19 @@ st.title("📦 Weight Discrepancy Checker")
 
 st.markdown(
     "<p style='color:#cccccc;'>"
-    "Upload the shipment PDFs (1 GR + 1 or more invoices). The system will automatically check for discrepancies."
+    "Upload the shipment PDFs (1 GR + 1 or more invoices). "
+    "The system will automatically check for discrepancies."
     "</p>",
     unsafe_allow_html=True
 )
 
 # =========================
-# Pre-check calculator
+# Pre-check calculator (CELDA 0)
 # =========================
 st.subheader("🧮 Pre-check Calculator")
 st.caption(
-    "Enter the GR total (kg) and the Invoice total (kg). "
-    "This calculates the ±10% allowed band and the target band for a corrected invoice total based on the GR."
+    "Pre-check calculator used to determine whether a weight discrepancy exists "
+    "based on the ±10% tolerance rule, before uploading any documents."
 )
 
 gr_val = st.number_input("GR (kg):", min_value=0.0, value=0.0, step=0.1)
@@ -35,15 +35,17 @@ if calc:
     if gr_val <= 0 or inv_val <= 0:
         st.error("⚠️ Enter values > 0 for GR and Invoice.")
     else:
-        low_allowed, high_allowed = invoice_allowed_band(inv_val)
+        # Allowed band (based on Invoice total)
+        low_allowed, high_allowed = invoice_allowed_band(inv_val, tol=0.10)
         in_tol = (low_allowed <= gr_val <= high_allowed)
 
-        target_low, target_high = target_band_for_new_invoice_from_gr(gr_val)
+        # Target band for NEW invoice total (based on GR)
+        target_low, target_high = target_band_for_new_invoice_from_gr(gr_val, tol=0.10)
 
         st.markdown(
             "<div style='padding:10px;border:1px solid #ddd;border-radius:8px;'>"
             "<h3 style='margin:0;color:#c00000;'>Weight discrepancy</h3>"
-            "<div style='margin-top:6px;'><b>Tolerance:</b> ±10% (allowed band based on the Invoice total)</div>"
+            "<div style='margin-top:6px;'><b>Tolerance:</b> ±10% (allowed band based on the invoice total)</div>"
             "</div>",
             unsafe_allow_html=True
         )
@@ -58,8 +60,8 @@ if calc:
 
         st.markdown(
             "<div style='margin-top:10px;padding:10px;border:1px solid #ddd;border-radius:8px;'>"
-            "<b>Target band for the NEW Invoice total (based on GR):</b><br>"
-            "If there is a discrepancy, the adjustment aims to keep the new invoice total inside this range."
+            "<b>Target band for the NEW invoice total (based on GR):</b><br>"
+            "If there is a discrepancy, the adjustment will aim to keep the new invoice total within this range."
             "</div>",
             unsafe_allow_html=True
         )
@@ -71,16 +73,30 @@ if calc:
         st.dataframe(df_target, use_container_width=True)
 
         if in_tol:
-            st.success("✅ No weight discrepancy (GR is inside the allowed band).")
+            st.markdown(
+                "<div style='margin-top:10px;padding:10px;border-radius:8px;"
+                "background:#e7f7e7;border:1px solid #6bbf6b;'>"
+                "<b style='color:#1b5e20'>✅ No weight discrepancy.</b><br>"
+                "You do not need to upload documents."
+                "</div>",
+                unsafe_allow_html=True
+            )
         else:
-            st.warning("⚠️ Weight discrepancy detected. Upload PDFs to run the correction analysis.")
+            st.markdown(
+                "<div style='margin-top:10px;padding:10px;border-radius:8px;"
+                "background:#fff4e5;border:1px solid #ffb74d;'>"
+                "<b style='color:#e65100'>⚠️ Weight discrepancy detected.</b><br>"
+                "If you want, upload the PDFs to run the correction (the invoice will be adjusted)."
+                "</div>",
+                unsafe_allow_html=True
+            )
 
 st.divider()
 
 # =========================
-# Upload + Run Analysis
+# Upload + Run analysis
 # =========================
-st.subheader("📤 Shipment PDFs Upload")
+st.subheader("📤 Upload shipment PDFs")
 st.caption(
     "Upload the shipment PDFs (1 GR + 1 or more invoices). "
     "The system will automatically check for discrepancies."
@@ -105,33 +121,13 @@ if run_btn:
 
         st.success("✅ Analysis completed")
 
-        # =========================
-        # Shipment summary
-        # =========================
         st.subheader("📊 Shipment Summary")
         st.caption(
-            "High-level results: totals, allowed bands, target bands, number of pieces detected, "
-            "how many pieces were adjusted, and tolerance status before/after."
+            "High-level overview of the shipment: totals, tolerance ranges, target bands, "
+            "and compliance status before and after the adjustment."
         )
         st.dataframe(summary, use_container_width=True)
 
-        # Helpful message based on results
-        try:
-            in_before = bool(summary.loc[0, "In tolerance BEFORE"])
-            in_after = bool(summary.loc[0, "In tolerance AFTER"])
-            pieces_changed = int(summary.loc[0, "Pieces changed"])
-            if in_before and pieces_changed == 0:
-                st.info("No discrepancy was detected, so no piece adjustments were needed.")
-            elif (not in_before) and in_after:
-                st.success("Discrepancy detected and the adjusted total is now within tolerance.")
-            elif (not in_before) and (not in_after):
-                st.warning("Discrepancy detected, but the adjusted total is still outside tolerance.")
-        except Exception:
-            pass
-
-        # =========================
-        # Full table (renamed)
-        # =========================
         st.subheader("📦 All Pieces Weight Summary (Used for Total Validation)")
         st.caption(
             "Consolidated view of all shipment pieces, including adjusted and non-adjusted cases. "
@@ -144,22 +140,15 @@ if run_btn:
         if "NEW WEIGHT kgs" in df_full.columns:
             st.write(f"🔹 Sum of NEW WEIGHT kgs: {round(df_full['NEW WEIGHT kgs'].sum(), 2)} kg")
 
-        # =========================
-        # Adjusted pieces only
-        # =========================
         st.subheader("📦 Adjusted Pieces Only (CAT)")
         st.caption(
-            "Only the cases that were adjusted. "
-            "Includes the invoice number used for the adjustment and the old vs. new weight values."
+            "Only the cases that required a weight adjustment to bring the invoice total within tolerance."
         )
         st.dataframe(df_adjusted, use_container_width=True)
 
-        # =========================
-        # Validation table
-        # =========================
         st.subheader("📊 Validation – Invoice vs GR vs New Weight")
         st.caption(
-            "Per-piece validation view: original invoice weight, matched GR weight (if available), "
-            "and the resulting new weight used by the adjustment logic."
+            "Case-level validation comparing the original invoice weight, the matched GR weight, "
+            "and the final new weight."
         )
         st.dataframe(validation_df, use_container_width=True)
