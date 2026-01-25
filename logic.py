@@ -1,6 +1,5 @@
 import re
 import io
-import math
 import pandas as pd
 import pdfplumber
 
@@ -34,11 +33,11 @@ PACKING_LIST_RE = re.compile(
 # Bands
 # =========================
 def invoice_allowed_band(inv_total, tol=0.10):
-    # Banda permitida basada en el TOTAL de la invoice
+    # Allowed band based on the INVOICE TOTAL
     return inv_total * (1 - tol), inv_total * (1 + tol)
 
 def target_band_for_new_invoice_from_gr(gr_total, tol=0.10):
-    # Target band para el NUEVO total de invoice (derivado del GR)
+    # Target band for the NEW invoice total derived from GR
     return gr_total / (1 + tol), gr_total / (1 - tol)
 
 # =========================
@@ -63,7 +62,7 @@ def is_gr(lines):
     return ("WAREHOUSE RECEIPT" in u) or ("ORDGR" in u) or re.search(r"\b[A-Z]{3}GR\d{6,}\b", u) is not None
 
 # =========================
-# Invoice number extraction (este tipo de factura)
+# Invoice number extraction (this invoice type)
 # =========================
 def normalize_invoice_no(s: str) -> str:
     s = (s or "").strip().upper()
@@ -74,12 +73,12 @@ def normalize_invoice_no(s: str) -> str:
 
 def extract_invoice_number(lines):
     """
-    Extrae el INVOICE NUMBER real en facturas tipo:
-    Header:
-      SELLER: BUYER: SHIPPER:  INVOICE NUMBER:  LOAD NUMBER:  DOCPL: ...
-    Valores:
-      Y901    Y30E     92        AC51P216019       044886     1283484 ...
-    Devuelve: AC51P216019
+    Extracts INVOICE NUMBER for invoices like:
+      Header:
+        SELLER: BUYER: SHIPPER: INVOICE NUMBER: LOAD NUMBER: DOCPL: ...
+      Values:
+        Y901   Y30E   92   AC51P216019   044886   1283484 ...
+    Returns: AC51P216019
     """
 
     def split_cols(s: str):
@@ -92,12 +91,11 @@ def extract_invoice_number(lines):
         h = lines[i]
         v = lines[i + 1]
 
-        hu = h.upper()
-        if "INVOICE NUMBER" not in hu:
+        if "INVOICE NUMBER" not in h.upper():
             continue
 
         header_cols = split_cols(h.upper())
-        value_cols  = split_cols(v)
+        value_cols = split_cols(v)
 
         idx = None
         for k, c in enumerate(header_cols):
@@ -133,7 +131,7 @@ def extract_packing_list_block(lines, invoice_name):
             start = i
             break
     if start is None:
-        raise ValueError(f"Invoice '{invoice_name}': No encontré PACKING LIST.")
+        raise ValueError(f"Invoice '{invoice_name}': PACKING LIST not found.")
 
     block = []
     for l in lines[start:]:
@@ -145,11 +143,11 @@ def extract_packing_list_block(lines, invoice_name):
         block.append(l)
 
     if not block:
-        raise ValueError(f"Invoice '{invoice_name}': PACKING LIST vacío o mal delimitado.")
+        raise ValueError(f"Invoice '{invoice_name}': PACKING LIST block is empty or malformed.")
     return block
 
 # =========================
-# Invoice parser (este tipo de invoice)
+# Invoice parser (this invoice type)
 # =========================
 def parse_invoice_packing_list(lines, invoice_name, invoice_no):
     block = extract_packing_list_block(lines, invoice_name)
@@ -229,14 +227,14 @@ def parse_invoice_packing_list(lines, invoice_name, invoice_no):
 
     df = pd.DataFrame(rows)
     if df.empty:
-        raise ValueError(f"Invoice '{invoice_name}': No pude extraer piezas del PACKING LIST.")
+        raise ValueError(f"Invoice '{invoice_name}': No pieces could be extracted from PACKING LIST.")
 
     df["CASE_OCC"] = df.groupby(["INVOICE_FILE", "CASE_NO"]).cumcount() + 1
     df["PIECE_ID"] = df["INVOICE_FILE"].astype(str) + "|" + df["CASE_NO"].astype(str) + "|" + df["CASE_OCC"].astype(str)
     return df.reset_index(drop=True)
 
 # =========================
-# Dedupe entre invoices
+# Dedupe across invoices
 # =========================
 def collapse_duplicates_across_invoices(inv_df):
     inv_df = inv_df.copy().reset_index(drop=True)
@@ -255,7 +253,7 @@ def collapse_duplicates_across_invoices(inv_df):
     return base.sort_values("CASE_NO").reset_index(drop=True)
 
 # =========================
-# GR parser (KGM) sin duplicar totals
+# GR parser (KGM) - avoids double counting
 # =========================
 def parse_gr(lines):
     text = "\n".join(lines).upper()
@@ -269,11 +267,9 @@ def parse_gr(lines):
     piece_line_re = re.compile(r"^\s*(\d{10,})\s+.*?(\d+(?:\.\d+)?)\s*KGM\b", re.IGNORECASE)
 
     for ln in lines:
-        u = ln.upper()
-        mm = piece_line_re.match(u)
+        mm = piece_line_re.match(ln.upper())
         if mm:
-            w = float(mm.group(2))
-            piece_weights.append(w)
+            piece_weights.append(float(mm.group(2)))
 
     if piece_weights:
         return float(sum(piece_weights)), piece_weights
@@ -281,10 +277,10 @@ def parse_gr(lines):
     if header_total is not None:
         return float(header_total), [float(header_total)]
 
-    raise ValueError("GR: No pude extraer pesos KGM del GR (ni por pieza ni total del header).")
+    raise ValueError("GR: Could not extract KGM weights (neither per-piece nor header total).")
 
 # =========================
-# Matching por similitud
+# Similarity matching (sorted-to-sorted)
 # =========================
 def match_gr_to_invoice_by_similarity(inv_df, gr_pieces):
     inv_sorted = inv_df.sort_values("CAT_WEIGHT_KG").reset_index(drop=True)
@@ -296,7 +292,8 @@ def match_gr_to_invoice_by_similarity(inv_df, gr_pieces):
     return mapping, len(inv_sorted), len(gr_sorted)
 
 # =========================
-# Ajuste guiado por GR
+# GR-guided adjustment (target band derived from GR)
+# NEW KG never exceeds matched GR piece
 # =========================
 def gr_guided_adjust_auto(inv_df, gr_map, target_low_total, target_high_total):
     inv = inv_df.copy().reset_index(drop=True)
@@ -379,7 +376,7 @@ def gr_guided_adjust_auto(inv_df, gr_map, target_low_total, target_high_total):
     return updates
 
 # =========================
-# Tablas de salida
+# Output tables
 # =========================
 def build_cat_tables(inv_df, updates):
     rows_full = []
@@ -439,7 +436,7 @@ def build_validation(inv_df, gr_map, updates):
 # =========================
 def run_analysis_special(uploaded, tol=TOL_DEFAULT):
     if len(uploaded) < 2:
-        raise ValueError("Sube mínimo 2 PDFs: 1 GR + 1 o más Invoices.")
+        raise ValueError("Upload at least 2 PDFs: 1 GR + 1 or more Invoices.")
 
     invoices = []
     gr_lines = None
@@ -455,9 +452,9 @@ def run_analysis_special(uploaded, tol=TOL_DEFAULT):
             invoices.append((fname, lines, inv_no))
 
     if gr_lines is None:
-        raise ValueError("No encontré el GR.")
+        raise ValueError("GR not found.")
     if not invoices:
-        raise ValueError("No encontré ninguna invoice con PACKING LIST.")
+        raise ValueError("No invoice with PACKING LIST was found.")
 
     gr_total, gr_pieces = parse_gr(gr_lines)
 
@@ -474,7 +471,7 @@ def run_analysis_special(uploaded, tol=TOL_DEFAULT):
 
     target_low_total, target_high_total = target_band_for_new_invoice_from_gr(gr_total, tol)
 
-    gr_map, inv_n, gr_n = match_gr_to_invoice_by_similarity(inv_df, gr_pieces)
+    gr_map, _, gr_n = match_gr_to_invoice_by_similarity(inv_df, gr_pieces)
 
     updates = {}
     if not in_before:
@@ -489,10 +486,11 @@ def run_analysis_special(uploaded, tol=TOL_DEFAULT):
     validation_df = build_validation(inv_df, gr_map, updates)
 
     detected_inv_nos = [x[2] for x in invoices if x[2]]
+
     summary = pd.DataFrame([{
         "GR file": gr_file,
         "Invoices files": ", ".join([x[0] for x in invoices]),
-        "Invoice numbers detected": ", ".join(detected_inv_nos) if detected_inv_nos else "NO_DETECTADO",
+        "Invoice numbers detected": ", ".join(detected_inv_nos) if detected_inv_nos else "NOT_DETECTED",
 
         "Invoice total (kg)": round(inv_total, 2),
         "GR total (kg)": round(gr_total, 2),
