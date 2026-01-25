@@ -17,7 +17,7 @@ st.title("📦 Weight Discrepancy Checker")
 st.subheader("🧮 Pre-check Calculator")
 st.caption(
     "Pre-check calculator used to determine whether a weight discrepancy exists based on the ±10% tolerance"
-    "rule, before uploading any documents"
+    " rule, before uploading any documents"
 )
 
 col1, col2 = st.columns(2)
@@ -112,6 +112,7 @@ if run_btn:
             "Piece-level validation: original invoice weight vs matched GR weight vs proposed new weight."
         )
         st.dataframe(validation_df, use_container_width=True)
+
 
 
 
