@@ -11,8 +11,8 @@ st.set_page_config(page_title="Weight Discrepancy Checker", layout="wide")
 
 st.title("📦 Weight Discrepancy Checker")
 st.write(
-    "Upload the shipment PDFs (1 GR + 1 or more Invoices). "
-    "The system will automatically check for weight discrepancies."
+    "Pre-check calculator used to determine whether a weight discrepancy exists based on the ±10% tolerance" 
+    "rule, before uploading any documents"
 )
 
 # =========================
@@ -116,3 +116,4 @@ if run_btn:
             "Piece-level validation: original invoice weight vs matched GR weight vs proposed new weight."
         )
         st.dataframe(validation_df, use_container_width=True)
+
