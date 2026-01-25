@@ -106,6 +106,7 @@ if run_btn:
         st.subheader("📦 Adjusted Pieces Only (CAT)")
         st.caption(
             "Only the cases that were modified to bring the shipment back within tolerance."
+            " Use this table to prepare CAT tickets."
         )
         st.dataframe(df_adjusted, use_container_width=True)
 
@@ -114,6 +115,7 @@ if run_btn:
             "Piece-level validation: original invoice weight vs matched GR weight vs proposed new weight."
         )
         st.dataframe(validation_df, use_container_width=True)
+
 
 
 
