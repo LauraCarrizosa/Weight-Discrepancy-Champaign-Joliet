@@ -62,8 +62,10 @@ st.divider()
 # Upload + Run Analysis
 # =========================
 st.subheader("📤 Upload Shipment PDFs")
-st.caption("Upload at least 2 PDFs: 1 GR and 1 or more Invoice files.")
-
+st.caption("Upload at least 2 PDFs: 1 GR and 1 or more Invoice files."
+"Then click **Run Analysis**."
+          )
+           
 uploaded_files = st.file_uploader(
     "Upload PDF files",
     type=["pdf"],
@@ -112,6 +114,7 @@ if run_btn:
             "Piece-level validation: original invoice weight vs matched GR weight vs proposed new weight."
         )
         st.dataframe(validation_df, use_container_width=True)
+
 
 
 
