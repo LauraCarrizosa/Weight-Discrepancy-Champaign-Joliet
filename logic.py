@@ -82,6 +82,7 @@ def extract_invoice_number(lines):
     """
 
     def split_cols(s: str):
+        # NOTE: This expects "column-ish" PDFs (2+ spaces). Works for invoice no in your type.
         return [x.strip() for x in re.split(r"\s{2,}", s.strip()) if x.strip()]
 
     def is_date_token(tok: str) -> bool:
@@ -118,6 +119,66 @@ def extract_invoice_number(lines):
             if is_date_token(c):
                 continue
             return normalize_invoice_no(c)
+
+    return None
+
+# =========================
+# CONTAINER NO extraction (NEW)
+# Robust for PDFs where header is "glued" with single spaces.
+# Returns e.g. AF260116285
+# =========================
+def normalize_container_no(s: str) -> str:
+    s = (s or "").strip().upper()
+    s = re.sub(r"[^A-Z0-9\s\-_/]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    s = s.replace(" ", "").replace("-", "")
+    return s
+
+def extract_container_number_special(lines):
+    """
+    Extract CONTAINER NO for the 'SIN WD' invoice type.
+
+    Why this approach:
+    - Some PDFs don't preserve column spacing (2+ spaces). Header comes in a single "sentence".
+    - In those cases, "split by columns" fails, so we anchor on "CONTAINER NO" and
+      read the value from the next line.
+    """
+
+    # 1) Anchor on a line that contains "CONTAINER NO"
+    for i in range(len(lines)):
+        h = lines[i].upper()
+        if "CONTAINER NO" not in h:
+            continue
+
+        # 1a) If container appears on same line
+        m_same = re.search(r"\bCONTAINER\s+NO\s*[:\-]?\s*([A-Z]{2}\d{6,})\b", h)
+        if m_same:
+            return normalize_container_no(m_same.group(1))
+
+        # 1b) Normal case: value appears on next line
+        if i + 1 < len(lines):
+            v = lines[i + 1].upper()
+
+            # Prefer tokens like AF260116285 (2 letters + many digits)
+            cands = re.findall(r"\b[A-Z]{2}\d{6,}\b", v)
+            if cands:
+                # If multiple appear, the right one is often the last.
+                return normalize_container_no(cands[-1])
+
+            # Fallback: long tokens, then filter
+            toks = re.findall(r"\b[A-Z0-9][A-Z0-9\-_\/]{7,}\b", v)
+            for t in reversed(toks):
+                if re.match(r"^[A-Z]{2}\d{6,}$", t):
+                    return normalize_container_no(t)
+
+    # 2) Fallback global scan near the "CONTAINER NO" occurrence
+    text = "\n".join(lines).upper()
+    m = re.search(r"\bCONTAINER\s+NO\b", text)
+    if m:
+        window = text[m.start(): m.start() + 300]
+        cands = re.findall(r"\b[A-Z]{2}\d{6,}\b", window)
+        if cands:
+            return normalize_container_no(cands[-1])
 
     return None
 
@@ -449,7 +510,8 @@ def run_analysis_special(uploaded, tol=TOL_DEFAULT):
             gr_file = fname
         else:
             inv_no = extract_invoice_number(lines)
-            invoices.append((fname, lines, inv_no))
+            cntr_no = extract_container_number_special(lines)  # <-- NEW
+            invoices.append((fname, lines, inv_no, cntr_no))
 
     if gr_lines is None:
         raise ValueError("GR not found.")
@@ -458,7 +520,7 @@ def run_analysis_special(uploaded, tol=TOL_DEFAULT):
 
     gr_total, gr_pieces = parse_gr(gr_lines)
 
-    inv_dfs = [parse_invoice_packing_list(lines, name, inv_no) for name, lines, inv_no in invoices]
+    inv_dfs = [parse_invoice_packing_list(lines, name, inv_no) for name, lines, inv_no, _cntr in invoices]
     inv_df = pd.concat(inv_dfs, ignore_index=True)
 
     if DEDUP_CASES_ACROSS_INVOICES:
@@ -487,10 +549,26 @@ def run_analysis_special(uploaded, tol=TOL_DEFAULT):
 
     detected_inv_nos = [x[2] for x in invoices if x[2]]
 
+    # --- NEW: container numbers detected per invoice number (if 2 invoices, show both) ---
+    inv_to_cntr = {}
+    for _fname, _lines, inv_no, cntr in invoices:
+        inv_key = inv_no or "UNKNOWN_INVOICE"
+        if cntr:
+            inv_to_cntr.setdefault(inv_key, set()).add(cntr)
+
+    if inv_to_cntr:
+        containers_detected = " | ".join(
+            f"{inv}: {', '.join(sorted(cntrs))}"
+            for inv, cntrs in sorted(inv_to_cntr.items())
+        )
+    else:
+        containers_detected = "N/A"
+
     summary = pd.DataFrame([{
         "GR file": gr_file,
         "Invoices files": ", ".join([x[0] for x in invoices]),
         "Invoice numbers detected": ", ".join(detected_inv_nos) if detected_inv_nos else "NOT_DETECTED",
+        "Container numbers detected": containers_detected,  # <-- NEW column
 
         "Invoice total (kg)": round(inv_total, 2),
         "GR total (kg)": round(gr_total, 2),
